@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenClaw Team Dashboard</title>
+  <style>
+    :root {
+      --bg: #0f0f1a;
+      --card: #1a1a2e;
+      --border: #2a2a4a;
+      --text: #e0e0e0;
+      --accent: #00ff88;
+      --pilot: #00d4ff;
+      --sysop: #ff6b35;
+      --muse: #ff00aa;
+      --scribe: #ffdd00;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Courier New', monospace;
+      min-height: 100vh;
+      overflow: hidden;
+      user-select: none;
+    }
+
+    /* Scanline overlay */
+    body::before {
+      content: '';
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0,0,0,0.15) 2px,
+        rgba(0,0,0,0.15) 4px
+      );
+      pointer-events: none;
+      z-index: 999;
+    }
+
+    header {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      padding: 16px 24px;
+      background: linear-gradient(180deg, var(--bg) 0%, transparent 100%);
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      z-index: 100;
+    }
+
+    header h1 {
+      font-size: 18px;
+      color: var(--accent);
+      text-shadow: 0 0 10px var(--accent);
+      letter-spacing: 2px;
+    }
+
+    .status-bar {
+      font-size: 12px;
+      color: #666;
+      margin-left: auto;
+      display: flex;
+      gap: 20px;
+    }
+
+    .status-bar span { color: var(--accent); }
+
+    #arena {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      cursor: crosshair;
+    }
+
+    /* Pixel agent avatar */
+    .agent {
+      position: absolute;
+      width: 80px;
+      height: 96px;
+      cursor: grab;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      transition: filter 0.2s;
+    }
+
+    .agent:hover { filter: brightness(1.3); }
+    .agent:active { cursor: grabbing; }
+
+    .avatar {
+      width: 64px;
+      height: 64px;
+      image-rendering: pixelated;
+      border: 2px solid var(--border);
+      box-shadow: 0 0 12px rgba(0,0,0,0.8);
+    }
+
+    .agent-name {
+      font-size: 11px;
+      text-align: center;
+      text-shadow: 1px 1px 0 #000;
+      letter-spacing: 1px;
+    }
+
+    .agent-status {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      box-shadow: 0 0 6px currentColor;
+    }
+
+    .status-online  { background: #00ff00; color: #00ff00; }
+    .status-busy    { background: #ffdd00; color: #ffdd00; }
+    .status-offline { background: #ff3333; color: #ff3333; }
+
+    /* Detail panel */
+    #panel {
+      position: fixed;
+      right: -320px;
+      top: 60px;
+      width: 300px;
+      background: var(--card);
+      border: 2px solid var(--border);
+      padding: 20px;
+      transition: right 0.3s;
+      z-index: 200;
+      box-shadow: -4px 0 20px rgba(0,0,0,0.5);
+    }
+
+    #panel.open { right: 16px; }
+
+    #panel h2 {
+      font-size: 14px;
+      margin-bottom: 16px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .detail-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      margin-bottom: 8px;
+      color: #888;
+    }
+
+    .detail-row span:last-child { color: var(--text); }
+
+    .skills {
+      margin-top: 16px;
+    }
+
+    .skills h3 { font-size: 11px; color: #666; margin-bottom: 8px; }
+
+    .skill-tag {
+      display: inline-block;
+      font-size: 10px;
+      padding: 3px 8px;
+      background: var(--border);
+      margin: 2px;
+      border-radius: 2px;
+    }
+
+    #panel-close {
+      position: absolute;
+      top: 10px; right: 12px;
+      background: none;
+      border: none;
+      color: #666;
+      font-size: 18px;
+      cursor: pointer;
+    }
+    #panel-close:hover { color: var(--text); }
+
+    /* Footer info */
+    footer {
+      position: fixed;
+      bottom: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 11px;
+      color: #333;
+      text-align: center;
+    }
+
+    /* Click anywhere to close panel */
+    #arena.clicked { outline: none; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>⬡ OPENCLAW TEAM</h1>
+  <div class="status-bar">
+    AGENTS: <span id="agent-count">4</span>
+    | LAST UPDATE: <span id="last-update">--:--:--</span>
+  </div>
+</header>
+
+<div id="arena" tabindex="0"></div>
+
+<div id="panel">
+  <button id="panel-close">×</button>
+  <h2 id="panel-title">AGENT</h2>
+  <div id="panel-body"></div>
+</div>
+
+<footer>DRAG AGENTS · CLICK TO INSPECT · AUTO-REFRESH 10s</footer>
+
+<script>
+const AGENTS = [
+  {
+    id: 'pilot',
+    name: 'PILOT',
+    emoji: '🖥️',
+    color: '#00d4ff',
+    status: 'online',
+    role: '仪表盘前台',
+    model: 'MiniMax-M2.7',
+    skills: ['团队状态展示', '新用户引导', '任务分流', '多Agent协调'],
+    desc: '热情、精准、主动的仪表盘人格。用户来访时主动展示团队状态，引导需求到对应Agent。'
+  },
+  {
+    id: 'sysop',
+    name: 'SYSOP',
+    emoji: '⚙️',
+    color: '#ff6b35',
+    status: 'online',
+    role: '运维工程师',
+    model: 'MiniMax-M2.7',
+    skills: ['配置管理', '健康检查', '故障检测', '备份策略'],
+    desc: '严谨、精确、无废话的运维人格。负责openclaw.json配置、Agent增删改查、路由规则。'
+  },
+  {
+    id: 'muse',
+    name: 'MUSE',
+    emoji: '🎨',
+    color: '#ff00aa',
+    status: 'online',
+    role: '创意设计师',
+    model: 'MiniMax-M2.7',
+    skills: ['Persona设计', '迭代优化', '知识库维护', '味道测试'],
+    desc: '语言敏感、细节挑剔的创意设计师。从零设计新Persona，迭代优化现有人格。'
+  },
+  {
+    id: 'scribe',
+    name: 'SCRIBE',
+    emoji: '📜',
+    color: '#ffdd00',
+    status: 'online',
+    role: '历史记录员',
+    model: 'MiniMax-M2.7',
+    skills: ['经验沉淀', '记忆聚合', '定期复盘', '晋升机制'],
+    desc: '沉默、精确、复利思维的历史学家。管理.learnings目录，识别值得记录的事件。'
+  }
+];
+
+// Pixel art avatars as canvas-drawn data
+function drawPixelAvatar(canvas, color, emoji) {
+  const ctx = canvas.getContext('2d');
+  const size = 8; // pixel block size
+  const grid = 8; // 8x8 grid
+
+  // Background
+  ctx.fillStyle = '#1a1a2e';
+  ctx.fillRect(0, 0, 64, 64);
+
+  // Border glow
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 8;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
+  ctx.strokeRect(1, 1, 62, 62);
+  ctx.shadowBlur = 0;
+
+  // Simple pixel face pattern based on agent
+  const patterns = {
+    pilot: [
+      '  ████  ',
+      ' ██████ ',
+      '██ ◐◐ ██',
+      '██ ── ██',
+      '████████',
+      '██▓▓▓▓██',
+      '██░░░░██',
+      '  ████  '
+    ],
+    sysop: [
+      '  ████  ',
+      ' ██████ ',
+      '██ ◕◕ ██',
+      '██ ▬▬ ██',
+      '████████',
+      '██▓▓▓▓██',
+      ' ██████ ',
+      '  ████  '
+    ],
+    muse: [
+      ' ████ ',
+      '██████',
+      '██ ♡ ██',
+      '██ ▦▦ ██',
+      '██████',
+      '██〰〰██',
+      ' ██████',
+      '  ████ '
+    ],
+    scribe: [
+      '  ████  ',
+      ' ██══██ ',
+      '██ ▔▔ ██',
+      '██    ██',
+      '██ ══ ██',
+      '████████',
+      '██░░░░██',
+      '  ████  '
+    ]
+  };
+
+  const pattern = patterns[emoji] || patterns.pilot;
+  ctx.font = `${size * 0.9}px monospace`;
+
+  for (let y = 0; y < grid; y++) {
+    for (let x = 0; x < grid; x++) {
+      if (pattern[y] && pattern[y][x] === '█') {
+        ctx.fillStyle = color;
+        ctx.fillRect(x * size + 2, y * size + 2, size - 1, size - 1);
+      }
+    }
+  }
+}
+
+function createAgentEl(agent) {
+  const el = document.createElement('div');
+  el.className = 'agent';
+  el.id = 'agent-' + agent.id;
+  el.style.setProperty('--agent-color', agent.color);
+
+  // Canvas avatar
+  const canvas = document.createElement('canvas');
+  canvas.className = 'avatar';
+  canvas.width = 64;
+  canvas.height = 64;
+  drawPixelAvatar(canvas, agent.color, agent.id);
+
+  const name = document.createElement('div');
+  name.className = 'agent-name';
+  name.style.color = agent.color;
+  name.textContent = agent.name;
+
+  const dot = document.createElement('div');
+  dot.className = 'agent-status status-' + agent.status;
+
+  el.appendChild(canvas);
+  el.appendChild(name);
+  el.appendChild(dot);
+
+  // Drag logic
+  let dragging = false, offsetX, offsetY;
+
+  el.addEventListener('mousedown', e => {
+    dragging = true;
+    offsetX = e.clientX - el.offsetLeft;
+    offsetY = e.clientY - el.offsetTop;
+    el.style.zIndex = 100;
+  });
+
+  document.addEventListener('mousemove', e => {
+    if (!dragging) return;
+    el.style.left = (e.clientX - offsetX) + 'px';
+    el.style.top = (e.clientY - offsetY) + 'px';
+  });
+
+  document.addEventListener('mouseup', () => {
+    dragging = false;
+    el.style.zIndex = '';
+  });
+
+  // Click = detail panel
+  el.addEventListener('click', e => {
+    e.stopPropagation();
+    openPanel(agent);
+  });
+
+  return el;
+}
+
+function openPanel(agent) {
+  document.getElementById('panel-title').textContent = agent.name + ' ' + agent.emoji;
+  document.getElementById('panel-title').style.color = agent.color;
+
+  const skills = agent.skills.map(s => `<span class="skill-tag">${s}</span>`).join('');
+
+  document.getElementById('panel-body').innerHTML = `
+    <div class="detail-row"><span>ROLE</span><span>${agent.role}</span></div>
+    <div class="detail-row"><span>MODEL</span><span>${agent.model}</span></div>
+    <div class="detail-row"><span>STATUS</span><span style="color:${agent.status==='online'?'#00ff00':'#ffdd00'}">● ${agent.status.toUpperCase()}</span></div>
+    <p style="font-size:11px;color:#888;margin:12px 0;line-height:1.6">${agent.desc}</p>
+    <div class="skills"><h3>SKILLS</h3>${skills}</div>
+  `;
+  document.getElementById('panel').classList.add('open');
+}
+
+document.getElementById('panel-close').addEventListener('click', () => {
+  document.getElementById('panel').classList.remove('open');
+});
+
+// Init
+const arena = document.getElementById('arena');
+const positions = {
+  pilot: { x: window.innerWidth/2 - 40, y: window.innerHeight/2 - 100 },
+  sysop: { x: window.innerWidth/2 - 140, y: window.innerHeight/2 - 100 },
+  muse:  { x: window.innerWidth/2 + 60, y: window.innerHeight/2 - 100 },
+  scribe:{ x: window.innerWidth/2 - 40, y: window.innerHeight/2 + 20 }
+};
+
+AGENTS.forEach(agent => {
+  const el = createAgentEl(agent);
+  const pos = positions[agent.id];
+  el.style.left = pos.x + 'px';
+  el.style.top = pos.y + 'px';
+  arena.appendChild(el);
+});
+
+// Close panel on arena click
+arena.addEventListener('click', () => {
+  document.getElementById('panel').classList.remove('open');
+});
+
+// Live clock
+function updateTime() {
+  document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
+}
+updateTime();
+setInterval(updateTime, 1000);
+
+// Auto-refresh status (placeholder – reads from localStorage for now)
+setInterval(() => {
+  // Future: fetch ~/.team/status.md via a small local server
+}, 10000);
+</script>
+</body>
+</html>
